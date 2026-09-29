@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%234da3ff'/%3E%3C/svg%3E"
+    />
+    <title>2D Car Garage Simulator</title>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="panel">
+        <header class="panel__header">
+          <h1>Car Garage Sim</h1>
+          <p class="hint">
+            <kbd>W</kbd>/<kbd>&uarr;</kbd> drive &middot; <kbd>S</kbd>/<kbd>&darr;</kbd> reverse &middot;
+            <kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot;
+            <kbd>R</kbd> reset &middot; <kbd>C</kbd> view &middot; <kbd>F</kbd> follow
+          </p>
+        </header>
+
+        <section class="group">
+          <h2>Environment</h2>
+          <label class="field">
+            <span>Road width</span>
+            <input id="env-roadWidth" type="number" step="0.001" min="0.5" />
+          </label>
+          <label class="field">
+            <span>House width</span>
+            <input id="env-houseWidth" type="number" step="0.001" min="0.5" />
+          </label>
+          <label class="field">
+            <span>House depth</span>
+            <input id="env-houseDepth" type="number" step="0.001" min="0.5" />
+          </label>
+          <label class="field">
+            <span>Garage width</span>
+            <input id="env-garageDoorWidth" type="number" step="0.001" min="0.3" />
+          </label>
+          <label class="field">
+            <span>Driveway depth</span>
+            <input id="env-drivewayDepth" type="number" step="0.001" min="0" value="0.0" />
+          </label>
+        </section>
+
+        <section class="group">
+          <h2>Vehicle</h2>
+          <label class="field">
+            <span>Preset</span>
+            <select id="veh-preset"></select>
+          </label>
+          <label class="field">
+            <span>Length</span>
+            <input id="veh-vehicleLength" type="number" step="0.001" min="0.5" />
+          </label>
+          <label class="field">
+            <span>Width</span>
+            <input id="veh-vehicleWidth" type="number" step="0.001" min="0.3" />
+          </label>
+          <label class="field">
+            <span>Wheelbase</span>
+            <input id="veh-wheelbase" type="number" step="0.001" min="0.3" />
+          </label>
+          <label class="field">
+            <span>Front overhang <em>m</em></span>
+            <input id="veh-frontOverhang" type="number" step="0.001" min="0" />
+          </label>
+          <label class="field">
+            <span>Turning radius <em>m</em></span>
+            <input id="veh-turningRadius" type="number" step="0.001" min="0.5" />
+          </label>
+          <label class="field">
+            <span>Steering rate <em>deg/s</em></span>
+            <input id="veh-steeringRate" type="number" step="0.001" min="5" max="720" />
+          </label>
+          <label class="field">
+            <span>Return rate <em>deg/s</em></span>
+            <input id="veh-steeringReturnRate" type="number" step="0.001" min="5" max="720" />
+          </label>
+        </section>
+
+        <section class="group">
+          <h2>Turning circle</h2>
+          <div class="readout"><span>Max steer</span><span id="turn-max-steer">&mdash;</span></div>
+          <div class="readout"><span>Turn circle (&oslash;)</span><span id="turn-diameter">&mdash;</span></div>
+          <div class="readout"><span>Wall-to-wall</span><span id="turn-wall">&mdash;</span></div>
+          <div class="readout"><span>Rear axle</span><span id="turn-rear">&mdash;</span></div>
+          <p class="hint hint--block">
+            Turning radius is kerb-to-kerb (outer front wheel). Wall-to-wall is the
+            swept body envelope used for fit.
+          </p>
+          <p class="warn" id="turn-warning" hidden></p>
+        </section>
+
+        <section class="group">
+          <h2>Camera</h2>
+          <div class="actions">
+            <button id="btn-zoom-in" class="btn" type="button">Zoom in</button>
+            <button id="btn-zoom-out" class="btn" type="button">Zoom out</button>
+            <button id="btn-reset-camera" class="btn" type="button">Reset view</button>
+          </div>
+          <label class="checkbox">
+            <input id="chk-follow" type="checkbox" />
+            <span>Follow vehicle</span>
+          </label>
+          <p class="hint hint--block">Drag the map to pan, scroll to zoom.</p>
+        </section>
+
+        <div class="actions actions--footer">
+          <button id="btn-reset" class="btn btn--primary" type="button">Reset vehicle</button>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <div id="viewport" class="viewport">
+          <canvas id="scene"></canvas>
+
+          <div class="hud">
+            <div class="hud__row"><span>Speed</span><span id="stat-speed">0.00 m/s</span></div>
+            <div class="hud__row"><span>Heading</span><span id="stat-heading">0&deg;</span></div>
+            <div class="hud__row"><span>Steering</span><span id="stat-steering">0&deg;</span></div>
+            <div class="hud__row"><span>Position</span><span id="stat-position">X 0.00 m / Y 0.00 m</span></div>
+          </div>
+
+          <div id="garage-panel" class="garage">
+            <h3>
+              Garage entry
+              <span id="garage-fit-status" class="badge">FITS</span>
+            </h3>
+            <div class="hud__row"><span>Vehicle width</span><span id="garage-vehicle-width">1.80 m</span></div>
+            <div class="hud__row"><span>Garage width</span><span id="garage-door-width">2.60 m</span></div>
+            <div class="hud__row hud__row--sub"><span>Clearance left</span><span id="garage-clear-left">40.0 cm</span></div>
+            <div class="hud__row hud__row--sub"><span>Clearance right</span><span id="garage-clear-right">40.0 cm</span></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
