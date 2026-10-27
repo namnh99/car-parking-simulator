@@ -24,24 +24,28 @@
         <section class="group">
           <h2>Environment</h2>
           <label class="field">
-            <span>Road width</span>
+            <span>Clear road width <em>m</em></span>
             <input id="env-roadWidth" type="number" step="0.001" min="0.5" />
           </label>
           <label class="field">
-            <span>House width</span>
+            <span>Interior width <em>m</em></span>
             <input id="env-houseWidth" type="number" step="0.001" min="0.5" />
           </label>
           <label class="field">
-            <span>House depth</span>
+            <span>Interior depth <em>m</em></span>
             <input id="env-houseDepth" type="number" step="0.001" min="0.5" />
           </label>
           <label class="field">
-            <span>Garage width</span>
+            <span>Clear door width <em>m</em></span>
             <input id="env-garageDoorWidth" type="number" step="0.001" min="0.3" />
           </label>
           <label class="field">
             <span>Driveway depth</span>
             <input id="env-drivewayDepth" type="number" step="0.001" min="0" value="0.0" />
+          </label>
+          <label class="field">
+            <span>Wall thickness <em>m</em></span>
+            <input id="env-wallThickness" type="number" step="0.001" min="0.01" />
           </label>
         </section>
 
@@ -56,7 +60,7 @@
             <input id="veh-vehicleLength" type="number" step="0.001" min="0.5" />
           </label>
           <label class="field">
-            <span>Width</span>
+            <span>Body width</span>
             <input id="veh-vehicleWidth" type="number" step="0.001" min="0.3" />
           </label>
           <label class="field">
@@ -68,28 +72,74 @@
             <input id="veh-frontOverhang" type="number" step="0.001" min="0" />
           </label>
           <label class="field">
+            <span>Wheel track <em>m</em></span>
+            <input id="veh-trackWidth" type="number" step="0.001" min="0.1" />
+          </label>
+          <label class="field">
+            <span>Tyre width <em>m</em></span>
+            <input id="veh-tyreWidth" type="number" step="0.001" min="0.05" />
+          </label>
+          <label class="field">
+            <span>Tyre diameter <em>m</em></span>
+            <input id="veh-tyreDiameter" type="number" step="0.001" min="0.1" />
+          </label>
+          <label class="field">
+            <span>Width with mirrors <em>m</em></span>
+            <input id="veh-mirrorWidth" type="number" step="0.001" min="0" />
+          </label>
+          <label class="field">
+            <span>Mirror ahead of rear axle <em>m</em></span>
+            <input id="veh-mirrorOffset" type="number" step="0.001" />
+          </label>
+          <label class="field">
+            <span>Mirror length <em>m</em></span>
+            <input id="veh-mirrorLength" type="number" step="0.001" min="0.01" />
+          </label>
+          <label class="field">
             <span>Turning radius <em>m</em></span>
             <input id="veh-turningRadius" type="number" step="0.001" min="0.5" />
           </label>
           <label class="field">
+            <span>Radius measured to</span>
+            <select id="veh-turningRadiusReference">
+              <option value="outer-tyre">Outer tyre edge</option>
+              <option value="wheel-centre">Outer wheel centre</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Inner wheel lock <em>deg</em></span>
+            <input id="veh-maxInnerSteeringAngle" type="number" step="0.1" min="1" max="80" />
+          </label>
+          <label class="field">
             <span>Steering rate <em>deg/s</em></span>
-            <input id="veh-steeringRate" type="number" step="0.001" min="5" max="720" />
+            <input id="veh-steeringRate" type="number" step="0.001" min="0" max="720" />
           </label>
           <label class="field">
             <span>Return rate <em>deg/s</em></span>
-            <input id="veh-steeringReturnRate" type="number" step="0.001" min="5" max="720" />
+            <input id="veh-steeringReturnRate" type="number" step="0.001" min="0" max="720" />
           </label>
+          <p class="warn" id="calibration-warning">
+            Approximate presets, not verified for a specific model year/market.
+            Most overhangs, wheel tracks and tyre settings are estimates; verify them for your model. The 60° inner wheel lock is a generic cap, not a measured spec. Front/rear track is assumed equal.
+            Mirrors are OFF at width 0; enter measured width and mirror position to include them.
+            Steering response and acceleration are practice settings, not calibrated vehicle dynamics.
+            Set return rate to 0 to hold the steering angle. This 2D model treats kerbs as solid barriers.
+            Do not use a simulated clearance as a guarantee of real-world fit.
+          </p>
         </section>
 
         <section class="group">
           <h2>Turning circle</h2>
-          <div class="readout"><span>Max steer</span><span id="turn-max-steer">&mdash;</span></div>
+          <div class="readout"><span>Centre steer at full lock</span><span id="turn-max-steer">&mdash;</span></div>
+          <div class="readout"><span>Inner road wheel</span><span id="turn-inner-steer">&mdash;</span></div>
+          <div class="readout"><span>Outer road wheel</span><span id="turn-outer-steer">&mdash;</span></div>
           <div class="readout"><span>Turn circle (&oslash;)</span><span id="turn-diameter">&mdash;</span></div>
-          <div class="readout"><span>Wall-to-wall</span><span id="turn-wall">&mdash;</span></div>
-          <div class="readout"><span>Rear axle</span><span id="turn-rear">&mdash;</span></div>
+          <div class="readout"><span>Envelope radius</span><span id="turn-wall">&mdash;</span></div>
+          <div class="readout"><span>Rear axle radius</span><span id="turn-rear">&mdash;</span></div>
           <p class="hint hint--block">
-            Turning radius is kerb-to-kerb (outer front wheel). Wall-to-wall is the
-            swept body envelope used for fit.
+            Confirm whether the published radius uses the outer wheel centre or tyre edge.
+            Tyre-edge radius is wheel-centre radius plus half tyre width.
+            The envelope includes body, tyres and enabled mirrors.
           </p>
           <p class="warn" id="turn-warning" hidden></p>
         </section>
@@ -127,12 +177,14 @@
           <div id="garage-panel" class="garage">
             <h3>
               Garage entry
-              <span id="garage-fit-status" class="badge">FITS</span>
+              <span id="garage-fit-status" class="badge">CHECKING</span>
             </h3>
-            <div class="hud__row"><span>Vehicle width</span><span id="garage-vehicle-width">1.80 m</span></div>
+            <div class="hud__row"><span>Body width</span><span id="garage-vehicle-width">1.80 m</span></div>
             <div class="hud__row"><span>Garage width</span><span id="garage-door-width">2.60 m</span></div>
             <div class="hud__row hud__row--sub"><span>Clearance left</span><span id="garage-clear-left">40.0 cm</span></div>
             <div class="hud__row hud__row--sub"><span>Clearance right</span><span id="garage-clear-right">40.0 cm</span></div>
+            <p class="hint" id="garage-clearance-mode"></p>
+            <p class="hint">Current doorway slice or conservative projection; not a prediction of the next turn.</p>
           </div>
         </div>
       </main>

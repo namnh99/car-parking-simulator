@@ -2,16 +2,17 @@
 
 /** Geometry of the static scene, all values in metres. */
 export interface EnvironmentConfig {
-  /** Width of the horizontal road band. */
+  /** Clear width of the horizontal road band, between the inner kerb faces. */
   roadWidth: number;
-  /** Width of the house footprint (perpendicular to the driveway). */
+  /** Clear interior width between the side walls. */
   houseWidth: number;
-  /** Depth of the house footprint (along the driveway). */
+  /** Clear interior depth behind the front wall. */
   houseDepth: number;
   /** Width of the garage door opening on the road-facing wall. */
   garageDoorWidth: number;
   /** Distance between the road edge and the house front wall. */
   drivewayDepth: number;
+  wallThickness: number;
 }
 
 /** Physical parameters of the car, all values in metres unless noted. */
@@ -20,6 +21,15 @@ export interface VehicleConfig {
   vehicleLength: number;
   /** Overall body width. */
   vehicleWidth: number;
+  /** Distance between wheel centres; front/rear assumed equal in this model. */
+  trackWidth: number;
+  tyreWidth: number;
+  tyreDiameter: number;
+  /** Overall width with mirrors; zero disables the unmeasured mirror model. */
+  mirrorWidth: number;
+  /** Mirror centre ahead of the rear axle. */
+  mirrorOffset: number;
+  mirrorLength: number;
   /** Distance between the front and rear axle centres. */
   wheelbase: number;
   /**
@@ -33,6 +43,9 @@ export interface VehicleConfig {
    * (kerb-to-kerb, to the outer front wheel). Derives the steering lock.
    */
   turningRadius: number;
+  turningRadiusReference: "outer-tyre" | "wheel-centre";
+  /** Physical inner road-wheel lock in degrees; generic default is only a cap. */
+  maxInnerSteeringAngle: number;
   /** How fast the steering turns while a key is held, in degrees per second. */
   steeringRate: number;
   /** How fast the steering self-centres when released, in degrees per second. */

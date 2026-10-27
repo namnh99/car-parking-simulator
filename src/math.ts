@@ -1,6 +1,27 @@
 /** Small pure math helpers. No simulation state lives here. */
 
-import type { Aabb } from "./types";
+import type { Aabb, Vec2 } from "./types";
+
+/** Clip a convex polygon to a horizontal wall slab, including its boundaries. */
+export function clipToYBand(polygon: Vec2[], minY: number, maxY: number): Vec2[] {
+  let result = polygon;
+  for (const [boundary, direction] of [[minY, 1], [maxY, -1]]) {
+    const input = result;
+    result = [];
+    for (let i = 0; i < input.length; i++) {
+      const a = input[i];
+      const b = input[(i + 1) % input.length];
+      const aInside = (a.y - boundary) * direction >= 0;
+      const bInside = (b.y - boundary) * direction >= 0;
+      if (aInside) result.push(a);
+      if (aInside !== bInside) {
+        const fraction = (boundary - a.y) / (b.y - a.y);
+        result.push({ x: a.x + fraction * (b.x - a.x), y: boundary });
+      }
+    }
+  }
+  return result;
+}
 
 export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;

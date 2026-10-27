@@ -8,14 +8,23 @@ export const DEFAULT_ENV: EnvironmentConfig = {
   houseDepth: 10.0,
   garageDoorWidth: 2.6,
   drivewayDepth: 0.0,
+  wallThickness: 0.16,
 };
 
 export const DEFAULT_VEHICLE: VehicleConfig = {
   vehicleLength: 4.2,
   vehicleWidth: 1.8,
+  trackWidth: 1.58,
+  tyreWidth: 0.22,
+  tyreDiameter: 0.62,
+  mirrorWidth: 0,
+  mirrorOffset: 2.3,
+  mirrorLength: 0.18,
   wheelbase: 2.6,
   frontOverhang: 0.9,
   turningRadius: 5.2,
+  turningRadiusReference: "outer-tyre",
+  maxInnerSteeringAngle: 60,
   steeringRate: 25,
   steeringReturnRate: 40,
 };
@@ -29,9 +38,8 @@ export interface VehiclePreset {
 /**
  * One-click vehicle geometries.
  *
- * Every car here is a small hatchback, so the front overhang is longer than the
- * rear one and it is what limits a garage entry. Only the Hyundai Grand i10
- * publishes its overhangs; the others are estimated at 55% of the total
+ * Compact hatchbacks and crossovers. Unmeasured front overhangs are estimated
+ * at 55% of the total
  * overhang (`length - wheelbase`), which is the ratio the Grand i10 actually
  * has (715 / 1305 = 0.548). The Suzuki Swift uses the published ratio of the
  * previous-generation car (820 / 600), whose wheelbase-to-length ratio is
@@ -49,7 +57,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       wheelbase: 2.385,
       frontOverhang: 0.71,
       turningRadius: 5.0,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
@@ -64,7 +72,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       wheelbase: 2.45,
       frontOverhang: 0.715,
       turningRadius: 4.9,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
@@ -78,7 +86,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       wheelbase: 2.525,
       frontOverhang: 0.679,
       turningRadius: 4.6,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
@@ -92,7 +100,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       wheelbase: 2.405,
       frontOverhang: 0.767,
       turningRadius: 4.6,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
@@ -106,7 +114,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       wheelbase: 2.57,
       frontOverhang: 0.831,
       turningRadius: 4.7,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
@@ -118,13 +126,60 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       vehicleLength: 3.86,
       vehicleWidth: 1.735,
       wheelbase: 2.45,
-      frontOverhang: 0.815,
+      frontOverhang: 0.775,
       turningRadius: 4.8,
-      steeringRate: 25,
+      steeringRate: 40,
       steeringReturnRate: 40,
     },
   },
-];
+  {
+    id: "morning",
+    label: "Kia morning",
+    config: {
+      vehicleLength: 3.595,
+      vehicleWidth: 1.595,
+      wheelbase: 2.4,
+      frontOverhang: 0.7,
+      turningRadius: 4.7,
+      steeringRate: 40,
+      steeringReturnRate: 40,
+    },
+  },
+  {
+    id: "fronx",
+    label: "Suzuki Fronx",
+    config: {
+      // Suzuki Vietnam: https://suzuki.com.vn/cars/fronx
+      // 3995 x 1765 mm, wheelbase 2520 mm, min turning radius 4.8 m.
+      vehicleLength: 3.995,
+      vehicleWidth: 1.765,
+      wheelbase: 2.52,
+      // Estimated at 55% of total overhang, NOT a published measurement.
+      frontOverhang: 0.811,
+      turningRadius: 4.8,
+      // Published 195/60 R16: nominal diameter = rim + two sidewalls.
+      tyreWidth: 0.195,
+      tyreDiameter: 16 * 0.0254 + 2 * 0.195 * 0.60,
+      steeringRate: 40,
+      steeringReturnRate: 40,
+    },
+  },
+].map((preset) => ({
+  ...preset,
+  config: {
+    ...preset.config,
+    // Track and fallback tyres are estimates, NOT verified specifications.
+    trackWidth: preset.config.vehicleWidth - (preset.config.tyreWidth ?? 0.22),
+    tyreWidth: preset.config.tyreWidth ?? 0.22,
+    tyreDiameter: preset.config.tyreDiameter ?? 0.62,
+    mirrorWidth: 0,
+    mirrorOffset: preset.config.wheelbase - 0.3,
+    mirrorLength: 0.18,
+    // Brio's existing spec is explicitly wheel-centre, unlike the other inputs.
+    turningRadiusReference: preset.id === "brio" ? "wheel-centre" as const : "outer-tyre" as const,
+    maxInnerSteeringAngle: 60,
+  },
+}));
 
 /** Global tuning constants for the prototype. */
 export const SIM = {
@@ -139,23 +194,16 @@ export const SIM = {
   /** Passive deceleration while coasting (m/s^2). */
   coastDecel: 1.6,
   /** Steering bounds. Angles/rates are in degrees. */
-  minSteeringAngle: 1,
-  maxSteeringAngle: 45,
-  minSteeringRate: 5,
+  minSteeringRate: 0,
   maxSteeringRate: 720,
   /** Fixed physics timestep and frame clamp. */
   physicsDt: 1 / 120,
   maxFrameDt: 0.05,
-  /** Thickness of the collision wall bands around the house (m). */
-  wallThickness: 0.16,
   /** Minimum distance between recorded trajectory points (m). */
   trailMinStep: 0.06,
   /** Camera limits (pixels per metre). */
   minZoom: 4,
   maxZoom: 320,
-  /** Wheel rendering size (m). */
-  wheelLength: 0.62,
-  wheelWidth: 0.22,
 } as const;
 
 function positive(value: number, fallback: number, min: number): number {
@@ -181,6 +229,7 @@ export function sanitizeEnvironment(
     houseWidth,
   );
   return {
+    wallThickness: positive(input.wallThickness ?? DEFAULT_ENV.wallThickness, DEFAULT_ENV.wallThickness, 0.01),
     roadWidth: positive(
       input.roadWidth ?? DEFAULT_ENV.roadWidth,
       DEFAULT_ENV.roadWidth,
@@ -216,25 +265,27 @@ export function sanitizeVehicle(input: Partial<VehicleConfig>): VehicleConfig {
     0.3,
     Math.max(vehicleLength - 0.05, 0.3),
   );
+  const vehicleWidth = positive(input.vehicleWidth ?? fallback.vehicleWidth, fallback.vehicleWidth, 0.3);
+  const tyreWidth = clamp(positive(input.tyreWidth ?? fallback.tyreWidth, fallback.tyreWidth, 0.05), 0.05, vehicleWidth - 0.1);
+  const mirrorWidth = positive(input.mirrorWidth ?? 0, 0, 0);
+  const frontOverhang = clamp(positive(input.frontOverhang ?? fallback.frontOverhang, fallback.frontOverhang, 0), 0, vehicleLength - wheelbase);
+  const mirrorLength = clamp(positive(input.mirrorLength ?? fallback.mirrorLength, fallback.mirrorLength, 0.01), 0.01, vehicleLength);
 
   return {
     vehicleLength,
     wheelbase,
-    vehicleWidth: positive(
-      input.vehicleWidth ?? fallback.vehicleWidth,
-      fallback.vehicleWidth,
-      0.3,
-    ),
+    vehicleWidth,
+    trackWidth: clamp(positive(input.trackWidth ?? vehicleWidth - tyreWidth, vehicleWidth - tyreWidth, 0.1), 0.1, vehicleWidth - tyreWidth),
+    tyreWidth,
+    tyreDiameter: positive(input.tyreDiameter ?? fallback.tyreDiameter, fallback.tyreDiameter, 0.1),
+    mirrorWidth: mirrorWidth === 0 ? 0 : Math.max(mirrorWidth, vehicleWidth),
+    mirrorOffset: clamp(input.mirrorOffset !== undefined && Number.isFinite(input.mirrorOffset) ? input.mirrorOffset : wheelbase - 0.3,
+      -(vehicleLength - wheelbase - frontOverhang) + mirrorLength / 2, wheelbase + frontOverhang - mirrorLength / 2),
+    mirrorLength,
+    turningRadiusReference: input.turningRadiusReference === "wheel-centre" ? "wheel-centre" : "outer-tyre",
+    maxInnerSteeringAngle: clamp(positive(input.maxInnerSteeringAngle ?? fallback.maxInnerSteeringAngle, fallback.maxInnerSteeringAngle, 1), 1, 80),
     // Rear overhang is derived, so the front one is bounded by what is left.
-    frontOverhang: clamp(
-      positive(
-        input.frontOverhang ?? fallback.frontOverhang,
-        fallback.frontOverhang,
-        0,
-      ),
-      0,
-      Math.max(vehicleLength - wheelbase, 0),
-    ),
+    frontOverhang,
     turningRadius: Math.max(
       positive(
         input.turningRadius ?? fallback.turningRadius,

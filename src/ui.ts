@@ -1,13 +1,12 @@
 import type { EnvironmentConfig, VehicleConfig } from "./types";
 import type { GarageStatus, SimulationStats } from "./simulation";
-import { SIM } from "./config";
 import { formatNumber } from "./math";
-import { turningGeometry, turningRadiusClamped } from "./vehicle";
+import { turningGeometry, turningRadiusClamped, wheelSteeringAngle } from "./vehicle";
 
 export interface UiCallbacks {
   onEnvironmentChange: (patch: Partial<EnvironmentConfig>) => void;
   /** Single-field vehicle edit, so the length/overhang identity can be kept. */
-  onVehicleChange: (key: keyof VehicleConfig, value: number) => void;
+  onVehicleChange: (key: keyof VehicleConfig, value: VehicleConfig[keyof VehicleConfig]) => void;
   onPresetChange: (presetId: string) => void;
   onReset: () => void;
   onZoomIn: () => void;
@@ -24,14 +23,23 @@ const ENV_FIELDS: ReadonlyArray<keyof EnvironmentConfig> = [
   "houseDepth",
   "garageDoorWidth",
   "drivewayDepth",
+  "wallThickness",
 ];
 
-const VEHICLE_FIELDS: ReadonlyArray<keyof VehicleConfig> = [
+type NumericVehicleKey = Exclude<keyof VehicleConfig, "turningRadiusReference">;
+const VEHICLE_FIELDS: ReadonlyArray<NumericVehicleKey> = [
   "vehicleLength",
   "vehicleWidth",
+  "trackWidth",
+  "tyreWidth",
+  "tyreDiameter",
+  "mirrorWidth",
+  "mirrorOffset",
+  "mirrorLength",
   "wheelbase",
   "frontOverhang",
   "turningRadius",
+  "maxInnerSteeringAngle",
   "steeringRate",
   "steeringReturnRate",
 ];
@@ -48,7 +56,9 @@ function mustGet<T extends HTMLElement>(id: string): T {
 /** Binds the parameter panel and the readout panels to the simulation. */
 export class Ui {
   private readonly envInputs: Record<keyof EnvironmentConfig, HTMLInputElement>;
-  private readonly vehicleInputs: Record<keyof VehicleConfig, HTMLInputElement>;
+  private readonly vehicleInputs: Record<NumericVehicleKey, HTMLInputElement>;
+  private readonly radiusReference = mustGet<HTMLSelectElement>("veh-turningRadiusReference");
+  private readonly clearanceMode = mustGet<HTMLSpanElement>("garage-clearance-mode");
   private readonly followCheckbox = mustGet<HTMLInputElement>("chk-follow");
   private readonly garagePanel = mustGet<HTMLDivElement>("garage-panel");
   private readonly garageFitStatus = mustGet<HTMLSpanElement>("garage-fit-status");
@@ -61,6 +71,8 @@ export class Ui {
   private readonly statSteering = mustGet<HTMLSpanElement>("stat-steering");
   private readonly statPosition = mustGet<HTMLSpanElement>("stat-position");
   private readonly turnMaxSteer = mustGet<HTMLSpanElement>("turn-max-steer");
+  private readonly turnInnerSteer = mustGet<HTMLSpanElement>("turn-inner-steer");
+  private readonly turnOuterSteer = mustGet<HTMLSpanElement>("turn-outer-steer");
   private readonly turnDiameter = mustGet<HTMLSpanElement>("turn-diameter");
   private readonly turnWall = mustGet<HTMLSpanElement>("turn-wall");
   private readonly turnRear = mustGet<HTMLSpanElement>("turn-rear");
@@ -81,7 +93,7 @@ export class Ui {
         acc[key] = mustGet<HTMLInputElement>(`veh-${key}`);
         return acc;
       },
-      {} as Record<keyof VehicleConfig, HTMLInputElement>,
+      {} as Record<NumericVehicleKey, HTMLInputElement>,
     );
 
     for (const key of ENV_FIELDS) {
@@ -102,6 +114,10 @@ export class Ui {
     this.presetSelect.addEventListener("change", () =>
       callbacks.onPresetChange(this.presetSelect.value),
     );
+    this.radiusReference.addEventListener("change", () => {
+      callbacks.onVehicleChange("turningRadiusReference", this.radiusReference.value === "wheel-centre" ? "wheel-centre" : "outer-tyre");
+      callbacks.onCommit();
+    });
     mustGet<HTMLButtonElement>("btn-reset").addEventListener("click", () => callbacks.onReset());
     mustGet<HTMLButtonElement>("btn-zoom-in").addEventListener("click", () => callbacks.onZoomIn());
     mustGet<HTMLButtonElement>("btn-zoom-out").addEventListener("click", () => callbacks.onZoomOut());
@@ -125,6 +141,7 @@ export class Ui {
   syncInputs(env: EnvironmentConfig, vehicle: VehicleConfig): void {
     for (const key of ENV_FIELDS) this.envInputs[key].value = formatNumber(env[key]);
     for (const key of VEHICLE_FIELDS) this.vehicleInputs[key].value = formatNumber(vehicle[key]);
+    this.radiusReference.value = vehicle.turningRadiusReference;
   }
 
   setFollowChecked(follow: boolean): void {
@@ -161,6 +178,8 @@ export class Ui {
   updateTurning(vehicle: VehicleConfig): void {
     const geometry = turningGeometry(vehicle);
     this.turnMaxSteer.textContent = `${((geometry.steeringAngle * 180) / Math.PI).toFixed(1)}°`;
+    this.turnInnerSteer.textContent = `${(wheelSteeringAngle(geometry.steeringAngle, vehicle, -vehicle.trackWidth / 2) * 180 / Math.PI).toFixed(1)}°`;
+    this.turnOuterSteer.textContent = `${(wheelSteeringAngle(geometry.steeringAngle, vehicle, vehicle.trackWidth / 2) * 180 / Math.PI).toFixed(1)}°`;
     this.turnDiameter.textContent = `${formatNumber(geometry.referenceRadius * 2)} m`;
     this.turnWall.textContent = `${formatNumber(geometry.wallToWallRadius)} m`;
     this.turnRear.textContent = `${formatNumber(geometry.rearAxleRadius)} m`;
@@ -170,7 +189,7 @@ export class Ui {
     if (clamped) {
       this.turnWarning.textContent =
         `${formatNumber(vehicle.turningRadius)} m needs more than `
-        + `${SIM.maxSteeringAngle}° of lock; the tightest achievable is `
+        + `${vehicle.maxInnerSteeringAngle}° at the inner road wheel; the achievable circle is `
         + `${formatNumber(geometry.referenceRadius * 2)} m diameter.`;
     }
   }
@@ -181,6 +200,7 @@ export class Ui {
 
     this.garageVehicleWidth.textContent = `${formatNumber(status.vehicleWidth)} m`;
     this.garageDoorWidth.textContent = `${formatNumber(status.doorWidth)} m`;
+    this.clearanceMode.textContent = `${status.clearanceMode === "at-door" ? "At doorway" : "Projected footprint"} · ${status.mirrorsEnabled ? "includes mirrors" : "mirrors off"}`;
     this.garageClearLeft.textContent = formatClearance(status.leftClearance);
     this.garageClearRight.textContent = formatClearance(status.rightClearance);
     this.garageClearLeft.classList.toggle("is-bad", status.leftClearance <= 0);
@@ -189,8 +209,8 @@ export class Ui {
     this.garageFitStatus.textContent = status.parked
       ? "PARKED"
       : status.fits
-        ? "FITS"
-        : "WILL HIT";
+        ? status.clearanceMode === "at-door" ? "CLEAR NOW" : "PROJECTION CLEAR"
+        : "NOT CLEAR";
     this.garageFitStatus.classList.toggle("is-bad", !status.fits);
     this.garageFitStatus.classList.toggle("is-good", status.fits);
   }

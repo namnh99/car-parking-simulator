@@ -11,6 +11,8 @@ import {
 } from "../src/config";
 import { buildEnvironment } from "../src/environment";
 import { Simulation } from "../src/simulation";
+import { Camera } from "../src/camera";
+import { runRealismChecks } from "./realism";
 import {
   bodyCenter,
   bodyCorners,
@@ -47,9 +49,9 @@ const CFG = DEFAULT_VEHICLE;
 
 // ------------------------------------------------------------- 1. parameters
 check(
-  "config is length / width / wheelbase / front overhang / turning radius (+ rates)",
+  "config includes physical geometry and calibration parameters",
   (Object.keys(CFG) as string[]).sort().join(",") ===
-    "frontOverhang,steeringRate,steeringReturnRate,turningRadius,vehicleLength,vehicleWidth,wheelbase",
+    "frontOverhang,maxInnerSteeringAngle,mirrorLength,mirrorOffset,mirrorWidth,steeringRate,steeringReturnRate,trackWidth,turningRadius,turningRadiusReference,tyreDiameter,tyreWidth,vehicleLength,vehicleWidth,wheelbase",
   Object.keys(CFG).join(", "),
 );
 
@@ -123,8 +125,8 @@ check(
     `requested ${CFG.turningRadius} m -> ${geo.referenceRadius.toFixed(6)} m`,
   );
   check(
-    "rear-axle radius = sqrt(R^2 - WB^2) - width/2",
-    near(geo.rearAxleRadius, Math.sqrt(CFG.turningRadius ** 2 - CFG.wheelbase ** 2) - CFG.vehicleWidth / 2, 1e-9),
+    "rear-axle radius uses the selected tyre-edge convention and wheel track",
+    near(geo.rearAxleRadius, Math.sqrt((CFG.turningRadius - CFG.tyreWidth / 2) ** 2 - CFG.wheelbase ** 2) - CFG.trackWidth / 2, 1e-9),
     `${geo.rearAxleRadius.toFixed(4)} m`,
   );
   check(
@@ -170,11 +172,18 @@ check(
 {
   const dt = 1 / 240;
   const sim = new Simulation(DEFAULT_ENV, CFG);
+  check(
+    "vehicle starts to the right of the house, centred on the road",
+    sim.state.x > sim.env.house.right && near(sim.state.y, DEFAULT_ENV.roadWidth / 2, 1e-9),
+    `x ${sim.state.x.toFixed(2)} m, heading ${sim.state.heading.toFixed(2)} rad`,
+  );
+  // Test westward dynamics independently of the chosen spawn heading.
+  sim.state.heading = Math.PI;
   const startX = sim.state.x;
   for (let i = 0; i < 240 * 2; i += 1) sim.update(dt, stub({ forward: true }) as never);
   check(
-    "W accelerates east with no lateral drift",
-    sim.stats().speed > 3.0 && sim.state.x - startX > 3 && near(sim.state.y, DEFAULT_ENV.roadWidth / 2, 1e-9),
+    "W accelerates west with no lateral drift",
+    sim.stats().speed > 3.0 && startX - sim.state.x > 3 && near(sim.state.y, DEFAULT_ENV.roadWidth / 2, 1e-9),
     `speed ${sim.stats().speed.toFixed(2)} m/s, travelled ${(sim.state.x - startX).toFixed(2)} m`,
   );
   for (let i = 0; i < 240; i += 1) sim.update(dt, stub({ backward: true }) as never);
@@ -182,14 +191,15 @@ check(
   for (let i = 0; i < 240 * 1.5; i += 1) sim.update(dt, stub({ backward: true }) as never);
   check(
     "S brakes then reverses",
-    sim.state.speed < 0 && sim.state.x < atStop,
+    sim.state.speed < 0 && sim.state.x > atStop,
     `x ${atStop.toFixed(2)} -> ${sim.state.x.toFixed(2)}, speed ${sim.state.speed.toFixed(2)}`,
   );
 
   const steerSim = new Simulation(DEFAULT_ENV, CFG);
   const samples: number[] = [];
+  // Isolate steering at rest; driving into a kerb may correctly limit tyre rotation.
   for (let i = 0; i < 240 * 4; i += 1) {
-    steerSim.update(dt, stub({ forward: true, steerRight: true }) as never);
+    steerSim.update(dt, stub({ steerRight: true }) as never);
     samples.push(steerSim.state.steeringAngle);
   }
   const lock = maxSteeringAngle(CFG);
@@ -203,6 +213,20 @@ check(
 }
 
 // ---------------------------------------------------- 7. barriers + clearance
+{
+  for (const roadWidth of [1.9, 3.72, 10]) {
+    for (const drivewayDepth of [0, 0.5, 5]) {
+      const env = buildEnvironment(sanitizeEnvironment({ ...DEFAULT_ENV, roadWidth, drivewayDepth }));
+      check(
+        "walls leave the full configured road width clear",
+        env.walls.every(({ box }) =>
+          box.maxX <= env.road.left || box.minX >= env.road.right ||
+          box.maxY <= env.road.top || box.minY >= env.road.bottom),
+        `road ${roadWidth} m, driveway ${drivewayDepth} m`,
+      );
+    }
+  }
+}
 {
   const wide = sanitizeEnvironment({ ...DEFAULT_ENV, roadWidth: 10, drivewayDepth: 0 });
   const env = buildEnvironment(wide);
@@ -240,8 +264,8 @@ check(
 
 // -------------------------------------------------------------- 8. presets
 {
-  check("six hatchback presets plus the example", VEHICLE_PRESETS.length === 7, `${VEHICLE_PRESETS.length} presets`);
-  const expectedIds = ["example", "fadil", "i10", "wigo", "brio", "mazda2", "swift"];
+  check("eight vehicle presets", VEHICLE_PRESETS.length === 8, `${VEHICLE_PRESETS.length} presets`);
+  const expectedIds = ["fadil", "i10", "wigo", "brio", "mazda2", "swift", "morning", "fronx"];
   check(
     "preset ids",
     VEHICLE_PRESETS.map((p) => p.id).join(",") === expectedIds.join(","),
@@ -268,11 +292,19 @@ check(
     );
   }
 
-  // Every hatchback should have a front bias; only the i10 publishes it.
+  // Current presets use front-biased overhangs; most are estimates.
   const biased = VEHICLE_PRESETS.filter((p) => p.id !== "example").every(
     (p) => frontOverhang(p.config) > rearOverhang(p.config),
   );
-  check("every hatchback preset has a front-biased overhang", biased, "front > rear on all hatchbacks");
+  check("every preset has a front-biased overhang", biased, "front > rear on all current presets");
+  const fronx = VEHICLE_PRESETS.find((p) => p.id === "fronx")!.config;
+  check(
+    "Fronx matches Suzuki Vietnam dimensions and nominal tyre size",
+    near(fronx.vehicleLength, 3.995, 1e-9) && near(fronx.vehicleWidth, 1.765, 1e-9) &&
+      near(fronx.wheelbase, 2.52, 1e-9) && near(fronx.turningRadius, 4.8, 1e-9) &&
+      near(fronx.tyreWidth, 0.195, 1e-9) && near(fronx.tyreDiameter, 0.6404, 1e-9),
+    "3995 x 1765 mm, wheelbase 2520 mm, radius 4.8 m, 195/60 R16",
+  );
   const i10 = VEHICLE_PRESETS.find((p) => p.id === "i10")!.config;
   check(
     "Grand i10 uses its published 715/650 mm overhangs",
@@ -280,6 +312,28 @@ check(
     `front ${frontOverhang(i10)} m, rear ${rearOverhang(i10)} m`,
   );
   const swift = VEHICLE_PRESETS.find((p) => p.id === "swift")!.config;
+  const camera = new Camera();
+  for (const zoom of [4, 32, 100, 320]) {
+    camera.zoom = zoom;
+    for (const heading of [0, Math.PI / 4, Math.PI / 2, Math.PI]) {
+      const corners = bodyCorners({ x: 0, y: 0, heading, speed: 0, steeringAngle: 0 }, swift)
+        .map((p) => camera.worldToScreen(p.x, p.y, 800, 600));
+      const widthPx = Math.hypot(corners[0].x - corners[1].x, corners[0].y - corners[1].y);
+      const lengthPx = Math.hypot(corners[1].x - corners[2].x, corners[1].y - corners[2].y);
+      check(
+        "camera preserves vehicle dimensions and road-width ratio",
+        near(widthPx, swift.vehicleWidth * zoom, 1e-9) &&
+          near(lengthPx, swift.vehicleLength * zoom, 1e-9) &&
+          near(widthPx / (DEFAULT_ENV.roadWidth * zoom), 1.735 / 3.72, 1e-9),
+        `zoom ${zoom}, heading ${heading.toFixed(2)}`,
+      );
+    }
+  }
+  check(
+    "two Swifts leave 25 cm across a 3.72 m road",
+    near(DEFAULT_ENV.roadWidth - 2 * swift.vehicleWidth, 0.25, 1e-9),
+    `${(DEFAULT_ENV.roadWidth - 2 * swift.vehicleWidth).toFixed(2)} m`,
+  );
   check(
     "Swift reproduces the published 9.6 m turning circle",
     near(turningGeometry(swift).referenceRadius * 2, 9.6, 0.01),
@@ -299,6 +353,8 @@ check(
     `trail ${before} -> ${sim.trail.length}`,
   );
 }
+
+runRealismChecks(check);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -2,8 +2,8 @@ import type { Environment } from "./environment";
 import type { Vec2, VehicleConfig, VehicleState } from "./types";
 import type { Camera } from "./camera";
 import type { GarageStatus } from "./simulation";
-import { SIM } from "./config";
-import { frontOverhang, localBodyRect, localWheels } from "./vehicle";
+import { bodyCorners, headingBasis, localBodyRect, turningGeometry, vehicleShapes } from "./vehicle";
+import { formatNumber } from "./math";
 
 export interface RenderScene {
   env: Environment;
@@ -14,16 +14,12 @@ export interface RenderScene {
   garage: GarageStatus;
 }
 
-/** Width of the kerb border drawn around the road rectangle (metres). */
-const ROAD_BORDER_WIDTH = 0.18;
-
 const COLORS = {
   background: "#0e131a",
   grid: "rgba(255, 255, 255, 0.05)",
   road: "#2b323b",
   roadBorder: "rgba(160, 174, 192, 0.9)",
   driveway: "#3b424b",
-  house: "#1f2731",
   houseFloor: "#252e39",
   wall: "#cbd5e1",
   opening: "#4fd1c5",
@@ -92,6 +88,7 @@ export class Renderer {
     this.drawTrail(scene.trail);
     this.drawVehicle(scene.vehicleConfig, scene.vehicle);
     this.drawLabels(scene.env);
+    this.drawWidthDimensions(scene);
     if (scene.garage.parked) this.drawParkedBanner();
   }
 
@@ -166,13 +163,11 @@ export class Renderer {
 
     // Kerb border around the carriageway. The south edge is split at the
     // driveway/door opening so the drawing matches the collision geometry.
-    const border = ROAD_BORDER_WIDTH;
     const opening = env.kerbOpening;
-    this.strokeWorldLine(road.left, road.top, road.right, road.top, COLORS.roadBorder, border);
-    this.strokeWorldLine(road.left, road.top, road.left, road.bottom, COLORS.roadBorder, border);
-    this.strokeWorldLine(road.right, road.top, road.right, road.bottom, COLORS.roadBorder, border);
-    this.strokeWorldLine(road.left, road.bottom, opening.left, road.bottom, COLORS.roadBorder, border);
-    this.strokeWorldLine(opening.right, road.bottom, road.right, road.bottom, COLORS.roadBorder, border);
+    // Render the actual collision rectangles, not separately approximated strokes.
+    for (const { box } of env.walls.filter((wall) => wall.kind === "kerb")) {
+      this.fillWorldRect(box.minX, box.minY, box.maxX - box.minX, box.maxY - box.minY, COLORS.roadBorder);
+    }
     // Dropped kerb across the opening: drivable, so drawn as a faint threshold.
     this.strokeWorldLine(
       opening.left,
@@ -205,18 +200,13 @@ export class Renderer {
 
   private drawHouse(env: Environment): void {
     const { house } = env;
+    this.fillWorldRect(env.garage.left, house.front, env.garage.width,
+      house.interiorFront - house.front, COLORS.houseFloor);
     this.fillWorldRect(
       house.left,
-      house.front,
+      house.interiorFront,
       house.right - house.left,
-      house.back - house.front,
-      COLORS.house,
-    );
-    this.fillWorldRect(
-      house.left + 0.25,
-      house.front + 0.25,
-      Math.max(house.right - house.left - 0.5, 0.1),
-      Math.max(house.back - house.front - 0.5, 0.1),
+      house.back - house.interiorFront,
       COLORS.houseFloor,
     );
 
@@ -231,13 +221,9 @@ export class Renderer {
       [0.4, 0.4],
     );
 
-    const t = SIM.wallThickness;
-    const wallColor = COLORS.wall;
-    this.strokeWorldLine(house.left, house.front, house.left, house.back, wallColor, t);
-    this.strokeWorldLine(house.right, house.front, house.right, house.back, wallColor, t);
-    this.strokeWorldLine(house.left, house.back, house.right, house.back, wallColor, t);
-    this.strokeWorldLine(house.left, house.front, env.garage.left, house.front, wallColor, t);
-    this.strokeWorldLine(env.garage.right, house.front, house.right, house.front, wallColor, t);
+    for (const { box } of env.walls.filter((wall) => wall.kind === "house")) {
+      this.fillWorldRect(box.minX, box.minY, box.maxX - box.minX, box.maxY - box.minY, COLORS.wall);
+    }
 
     // Garage opening marker.
     this.strokeWorldLine(
@@ -283,8 +269,8 @@ export class Renderer {
   /**
    * Turning circles for the current steering lock, drawn around the
    * instantaneous centre of rotation:
-   *   - amber: wall-to-wall envelope (outermost body corner) — what actually collides
-   *   - blue:  curb-to-curb (outermost front tyre) — the figure car specs quote
+   *   - amber: complete footprint envelope (body, tyres and enabled mirrors)
+   *   - blue:  selected outer tyre / wheel-centre reference
    *   - grey:  rear axle path — the model reference point
    */
   private drawTurningCircles(scene: RenderScene): void {
@@ -299,18 +285,11 @@ export class Renderer {
     const centreX = vehicle.x + signedRadius * rightX;
     const centreY = vehicle.y + signedRadius * rightY;
 
-    const referenceRadius = Math.hypot(
-      vehicleConfig.wheelbase,
-      vehicleConfig.vehicleWidth / 2 + radius,
-    );
-    const wallRadius = Math.hypot(
-      vehicleConfig.wheelbase + frontOverhang(vehicleConfig),
-      vehicleConfig.vehicleWidth / 2 + radius,
-    );
+    const geometry = turningGeometry(vehicleConfig, steering);
 
     this.strokeWorldCircle(centreX, centreY, radius, "rgba(255, 255, 255, 0.12)", 1, [2, 5]);
-    this.strokeWorldCircle(centreX, centreY, referenceRadius, "rgba(77, 163, 255, 0.35)", 1, [7, 6]);
-    this.strokeWorldCircle(centreX, centreY, wallRadius, "rgba(255, 183, 3, 0.5)", 1.5, [7, 6]);
+    this.strokeWorldCircle(centreX, centreY, geometry.referenceRadius, "rgba(77, 163, 255, 0.35)", 1, [7, 6]);
+    this.strokeWorldCircle(centreX, centreY, geometry.wallToWallRadius, "rgba(255, 183, 3, 0.5)", 1.5, [7, 6]);
 
     // Instantaneous centre marker.
     const ctx = this.ctx;
@@ -367,18 +346,31 @@ export class Renderer {
     const frontPx = rect.front * zoom;
     const rearPx = rect.rear * zoom;
 
+    for (const shape of vehicleShapes(state, config)) {
+      const center = this.worldToScreen(shape.center.x, shape.center.y);
+      const halfLength = shape.halfLength * zoom;
+      const halfWidth = shape.halfWidth * zoom;
+      const outline = Math.min(1.5, halfLength, halfWidth);
+      ctx.save();
+      ctx.translate(center.x, center.y);
+      ctx.rotate(shape.heading);
+      ctx.fillStyle = shape.kind === "tyre" ? COLORS.wheel : COLORS.body;
+      ctx.fillRect(-halfLength, -halfWidth, halfLength * 2, halfWidth * 2);
+      ctx.strokeStyle = shape.kind === "tyre" ? COLORS.wheelOutline : COLORS.bodyOutline;
+      ctx.lineWidth = outline;
+      ctx.strokeRect(-halfLength + outline / 2, -halfWidth + outline / 2,
+        halfLength * 2 - outline, halfWidth * 2 - outline);
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(rear.x, rear.y);
     ctx.rotate(state.heading);
 
-    // Body.
-    ctx.fillStyle = COLORS.body;
-    ctx.strokeStyle = COLORS.bodyOutline;
-    ctx.lineWidth = 1.5;
+    // Decorative details are clipped inside the physical body footprint.
     ctx.beginPath();
     ctx.rect(rearPx, -halfWidthPx, frontPx - rearPx, halfWidthPx * 2);
-    ctx.fill();
-    ctx.stroke();
+    ctx.clip();
 
     // Axle reference lines: rear axle at x = 0, front axle at x = wheelbase.
     const frontAxlePx = config.wheelbase * zoom;
@@ -390,17 +382,6 @@ export class Renderer {
     ctx.moveTo(frontAxlePx, -halfWidthPx);
     ctx.lineTo(frontAxlePx, halfWidthPx);
     ctx.stroke();
-
-    // Wheels; the front pair follows the current steering angle.
-    for (const wheel of localWheels(config)) {
-      this.drawWheel(
-        wheel.x * zoom,
-        -wheel.y * zoom,
-        wheel.steered ? state.steeringAngle : 0,
-        (SIM.wheelLength / 2) * zoom,
-        (SIM.wheelWidth / 2) * zoom,
-      );
-    }
 
     // Heading arrow from the rear axle along the centreline.
     ctx.strokeStyle = "rgba(255, 209, 102, 0.85)";
@@ -428,20 +409,60 @@ export class Renderer {
     ctx.fill();
   }
 
-  /** Wheelbase and overhang dimension lines, drawn inside the rotated frame. */
+  /** Exact world-space spans with readable screen-space ticks and labels. */
+  private drawWidthDimensions(scene: RenderScene): void {
+    const { road } = scene.env;
+    const x = road.left + 0.8;
+    this.drawDimension(
+      this.worldToScreen(x, road.top), this.worldToScreen(x, road.bottom),
+      `Road ${formatNumber(road.bottom - road.top)} m`,
+    );
+    const corners = bodyCorners(scene.vehicle, scene.vehicleConfig);
+    const offsetX = Math.cos(scene.vehicle.heading) * 14;
+    const offsetY = Math.sin(scene.vehicle.heading) * 14;
+    const ends = corners.slice(0, 2).map((corner) => {
+      const p = this.worldToScreen(corner.x, corner.y);
+      return { x: p.x + offsetX, y: p.y + offsetY };
+    });
+    this.drawDimension(ends[0], ends[1], `Body ${formatNumber(scene.vehicleConfig.vehicleWidth)} m`);
+    const { vehicle, vehicleConfig } = scene;
+    if (vehicleConfig.mirrorWidth > vehicleConfig.vehicleWidth) {
+      const { forward, left } = headingBasis(vehicle.heading);
+      const points = [-1, 1].map((side) => this.worldToScreen(
+        vehicle.x + forward.x * vehicleConfig.mirrorOffset + side * left.x * vehicleConfig.mirrorWidth / 2,
+        vehicle.y + forward.y * vehicleConfig.mirrorOffset + side * left.y * vehicleConfig.mirrorWidth / 2,
+      ));
+      this.drawDimension(points[0], points[1], `Mirrors ${formatNumber(vehicleConfig.mirrorWidth)} m`);
+    }
+  }
 
-  /** Screen-space dimension labels, kept unrotated so they stay readable. */
-
-  private drawWheel(x: number, y: number, angle: number, halfLength: number, halfWidth: number): void {
+  private drawDimension(a: Vec2, b: Vec2, text: string): void {
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length < 1) return;
+    const nx = (b.y - a.y) / length;
+    const ny = -(b.x - a.x) / length;
     const ctx = this.ctx;
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.fillStyle = COLORS.wheel;
-    ctx.fillRect(-halfLength, -halfWidth, halfLength * 2, halfWidth * 2);
-    ctx.strokeStyle = COLORS.wheelOutline;
+    ctx.strokeStyle = COLORS.opening;
     ctx.lineWidth = 1;
-    ctx.strokeRect(-halfLength, -halfWidth, halfLength * 2, halfWidth * 2);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    for (const p of [a, b]) {
+      ctx.moveTo(p.x - nx * 4, p.y - ny * 4);
+      ctx.lineTo(p.x + nx * 4, p.y + ny * 4);
+    }
+    ctx.stroke();
+    ctx.font = "600 12px system-ui, sans-serif";
+    const width = ctx.measureText(text).width;
+    const labelX = (a.x + b.x) / 2 + nx * (width / 2 + 10);
+    const labelY = (a.y + b.y) / 2 + ny * 16;
+    ctx.fillStyle = COLORS.background;
+    ctx.fillRect(labelX - width / 2 - 4, labelY - 9, width + 8, 18);
+    ctx.fillStyle = COLORS.text;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, labelX, labelY);
     ctx.restore();
   }
 
@@ -451,8 +472,6 @@ export class Renderer {
     ctx.font = "600 12px system-ui, sans-serif";
     ctx.fillStyle = COLORS.text;
 
-    const roadMidY = (env.road.top + env.road.bottom) / 2;
-    this.label(env.road.left + 1.2, roadMidY, "ROAD", "left");
     this.label(
       env.house.centerX,
       (env.house.front + env.house.back) / 2 + 1,

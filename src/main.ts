@@ -18,7 +18,8 @@ const viewport: HTMLElement = viewportElement;
 
 const camera = new Camera();
 const renderer = new Renderer(canvas, camera);
-const simulation = new Simulation(DEFAULT_ENV, DEFAULT_VEHICLE);
+const initialPreset = VEHICLE_PRESETS[0];
+const simulation = new Simulation(DEFAULT_ENV, initialPreset?.config ?? DEFAULT_VEHICLE);
 const input = new InputManager();
 
 let follow = false;
@@ -68,6 +69,7 @@ const ui = new Ui({
 });
 
 ui.setPresets(VEHICLE_PRESETS.map(({ id, label }) => ({ id, label })));
+ui.selectPreset(initialPreset?.id ?? CUSTOM_PRESET_ID);
 ui.syncInputs(simulation.env.config, simulation.vehicleConfig);
 ui.updateTurning(simulation.vehicleConfig);
 

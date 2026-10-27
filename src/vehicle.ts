@@ -18,20 +18,17 @@ export function rearOverhang(config: VehicleConfig): number {
 /**
  * Steering lock in radians.
  *
- * The manufacturer `turningRadius` is kerb-to-kerb — measured to the outer
- * front wheel, not to the rear axle — so the rear-axle radius is
- *
- *   R_rear = sqrt(turningRadius^2 - wheelbase^2) - vehicleWidth / 2
- *
- * and the lock is `atan(wheelbase / R_rear)`. This reproduces the requested
- * radius exactly (see `turningGeometry().referenceRadius`).
+ * Convert the chosen outer-wheel reference using wheel TRACK, not body width.
+ * Outer-tyre convention is the wheel-centre path plus half the tyre width.
+ * Manufacturer conventions must be confirmed for the particular model/year.
  */
 export function maxSteeringAngle(config: VehicleConfig): number {
-  const halfWidth = config.vehicleWidth / 2;
-  const inner = config.turningRadius * config.turningRadius - config.wheelbase * config.wheelbase;
-  const rearAxleRadius = inner > 1e-6 ? Math.max(Math.sqrt(inner) - halfWidth, 0.05) : 0.05;
-  const degrees = (Math.atan(config.wheelbase / rearAxleRadius) * 180) / Math.PI;
-  return (clamp(degrees, SIM.minSteeringAngle, SIM.maxSteeringAngle) * Math.PI) / 180;
+  const wheelRadius = config.turningRadius - (config.turningRadiusReference === "outer-tyre" ? config.tyreWidth / 2 : 0);
+  const inner = wheelRadius * wheelRadius - config.wheelbase * config.wheelbase;
+  // Limit the INNER road wheel to the physical lock, not the virtual bicycle wheel.
+  const minimumRearRadius = config.trackWidth / 2 + config.wheelbase / Math.tan(config.maxInnerSteeringAngle * Math.PI / 180);
+  const rearAxleRadius = Math.max(inner > 0 ? Math.sqrt(inner) - config.trackWidth / 2 : 0, minimumRearRadius);
+  return Math.atan(config.wheelbase / rearAxleRadius);
 }
 
 // ---------------------------------------------------------------- body frame
@@ -66,13 +63,59 @@ export interface LocalWheel {
 }
 
 export function localWheels(config: VehicleConfig): LocalWheel[] {
-  const half = Math.max(config.vehicleWidth / 2 - SIM.wheelWidth / 2, 0.05);
+  const half = config.trackWidth / 2;
   return [
     { x: config.wheelbase, y: half, steered: true },
     { x: config.wheelbase, y: -half, steered: true },
     { x: 0, y: half, steered: false },
     { x: 0, y: -half, steered: false },
   ];
+}
+
+/** Local +y is left; positive steering turns right in our y-down world. */
+export function wheelSteeringAngle(steering: number, config: VehicleConfig, lateral: number): number {
+  if (Math.abs(steering) < 1e-12) return 0;
+  const signedRadius = config.wheelbase / Math.tan(steering);
+  return Math.atan(config.wheelbase / (signedRadius + lateral));
+}
+
+export interface VehicleShape {
+  kind: "body" | "mirror" | "tyre";
+  center: Vec2;
+  halfLength: number;
+  halfWidth: number;
+  heading: number;
+}
+
+export function shapeCorners(shape: VehicleShape): Vec2[] {
+  const { forward, left } = headingBasis(shape.heading);
+  return [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([along, across]) => ({
+    x: shape.center.x + along * shape.halfLength * forward.x + across * shape.halfWidth * left.x,
+    y: shape.center.y + along * shape.halfLength * forward.y + across * shape.halfWidth * left.y,
+  }));
+}
+
+/** Shared physical footprint for rendering, collisions, clearance and envelopes. */
+export function vehicleShapes(state: VehicleState, config: VehicleConfig): VehicleShape[] {
+  const shapes: VehicleShape[] = [{ kind: "body", center: bodyCenter(state, config),
+    halfLength: config.vehicleLength / 2, halfWidth: config.vehicleWidth / 2, heading: state.heading }];
+  const { forward, left } = headingBasis(state.heading);
+  const at = (along: number, across: number): Vec2 => ({
+    x: state.x + along * forward.x + across * left.x,
+    y: state.y + along * forward.y + across * left.y,
+  });
+  for (const wheel of localWheels(config)) {
+    shapes.push({ kind: "tyre", center: at(wheel.x, wheel.y), halfLength: config.tyreDiameter / 2,
+      halfWidth: config.tyreWidth / 2,
+      heading: state.heading + (wheel.steered ? wheelSteeringAngle(state.steeringAngle, config, wheel.y) : 0) });
+  }
+  if (config.mirrorWidth > config.vehicleWidth) {
+    for (const side of [-1, 1]) {
+      shapes.push({ kind: "mirror", center: at(config.mirrorOffset, side * (config.vehicleWidth + config.mirrorWidth) / 4),
+        halfLength: config.mirrorLength / 2, halfWidth: (config.mirrorWidth - config.vehicleWidth) / 4, heading: state.heading });
+    }
+  }
+  return shapes;
 }
 
 /** Heading unit vectors in world space. */
@@ -127,17 +170,22 @@ export interface TurningGeometry {
   wallToWallRadius: number;
 }
 
-export function turningGeometry(config: VehicleConfig): TurningGeometry {
-  const steeringAngle = maxSteeringAngle(config);
+export function turningGeometry(config: VehicleConfig, steeringAngle = maxSteeringAngle(config)): TurningGeometry {
+  if (Math.abs(steeringAngle) < 1e-12) {
+    return { steeringAngle, rearAxleRadius: Infinity, referenceRadius: Infinity, wallToWallRadius: Infinity };
+  }
   const rearAxleRadius = Math.abs(config.wheelbase / Math.tan(steeringAngle));
-  const radiusAt = (x: number, y: number): number => Math.hypot(x, y + rearAxleRadius);
-  const halfWidth = config.vehicleWidth / 2;
+  const state = { x: 0, y: 0, heading: 0, speed: 0, steeringAngle };
+  const signedRadius = config.wheelbase / Math.tan(steeringAngle);
+  const envelope = Math.max(...vehicleShapes(state, config).flatMap(shapeCorners)
+    .map((p) => Math.hypot(p.x, p.y - signedRadius)));
 
   return {
     steeringAngle,
     rearAxleRadius,
-    referenceRadius: radiusAt(config.wheelbase, halfWidth),
-    wallToWallRadius: radiusAt(config.wheelbase + frontOverhang(config), halfWidth),
+    referenceRadius: Math.hypot(config.wheelbase, rearAxleRadius + config.trackWidth / 2)
+      + (config.turningRadiusReference === "outer-tyre" ? config.tyreWidth / 2 : 0),
+    wallToWallRadius: envelope,
   };
 }
 
@@ -211,7 +259,12 @@ export function updateThrottle(state: VehicleState, throttle: ThrottleInput, dt:
  */
 export function integrateMotion(state: VehicleState, config: VehicleConfig, dt: number): void {
   const wheelbase = Math.max(config.wheelbase, 0.01);
-  state.heading += (state.speed / wheelbase) * Math.tan(state.steeringAngle) * dt;
-  state.x += state.speed * Math.cos(state.heading) * dt;
-  state.y += state.speed * Math.sin(state.heading) * dt;
+  const distance = state.speed * dt;
+  const yaw = distance * Math.tan(state.steeringAngle) / wheelbase;
+  // Exact constant-curvature arc via midpoint/sinc, stable for straight motion.
+  const halfYaw = yaw / 2;
+  const chord = distance * (Math.abs(halfYaw) < 1e-8 ? 1 : Math.sin(halfYaw) / halfYaw);
+  state.x += chord * Math.cos(state.heading + halfYaw);
+  state.y += chord * Math.sin(state.heading + halfYaw);
+  state.heading += yaw;
 }

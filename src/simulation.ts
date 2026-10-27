@@ -3,13 +3,15 @@ import { buildEnvironment, type Environment } from "./environment";
 import { SIM, sanitizeEnvironment, sanitizeVehicle } from "./config";
 import {
   bodyCenter,
-  bodyCorners,
   createVehicleState,
   integrateMotion,
+  maxSteeringAngle,
   updateSteering,
   updateThrottle,
+  vehicleShapes,
+  shapeCorners,
 } from "./vehicle";
-import { obbIntersectsAabb } from "./math";
+import { clipToYBand, obbIntersectsAabb } from "./math";
 import type { InputManager } from "./input";
 
 export interface GarageStatus {
@@ -27,6 +29,9 @@ export interface GarageStatus {
   rightClearance: number;
   /** False when either clearance is negative, i.e. the door frame is hit. */
   fits: boolean;
+  /** At the actual door slab, or a conservative full-footprint preview. */
+  clearanceMode: "at-door" | "projection";
+  mirrorsEnabled: boolean;
 }
 
 export interface SimulationStats {
@@ -67,6 +72,9 @@ export class Simulation {
 
   applyVehicleConfig(vehicleConfig: VehicleConfig): void {
     this.vehicleConfig = sanitizeVehicle(vehicleConfig);
+    // A smaller steering lock must also constrain the currently held wheel angle.
+    const limit = maxSteeringAngle(this.vehicleConfig);
+    this.state.steeringAngle = Math.max(-limit, Math.min(limit, this.state.steeringAngle));
     if (this.collides()) this.resetVehicle();
     this.garage = this.evaluateGarage();
   }
@@ -121,6 +129,7 @@ export class Simulation {
       this.state.x = previous.x;
       this.state.y = previous.y;
       this.state.heading = previous.heading;
+      this.state.steeringAngle = previous.steeringAngle;
       this.state.speed = 0;
       return;
     }
@@ -140,21 +149,20 @@ export class Simulation {
   }
 
   private collides(): boolean {
-    const center = bodyCenter(this.state, this.vehicleConfig);
-    const halfLength = this.vehicleConfig.vehicleLength / 2;
-    const halfWidth = this.vehicleConfig.vehicleWidth / 2;
-    for (const wall of this.env.walls) {
-      if (
-        obbIntersectsAabb(
-          center.x,
-          center.y,
-          halfLength,
-          halfWidth,
-          this.state.heading,
-          wall.box,
-        )
-      ) {
-        return true;
+    for (const shape of vehicleShapes(this.state, this.vehicleConfig)) {
+      for (const wall of this.env.walls) {
+        if (
+          obbIntersectsAabb(
+            shape.center.x,
+            shape.center.y,
+            shape.halfLength,
+            shape.halfWidth,
+            shape.heading,
+            wall.box,
+          )
+        ) {
+          return true;
+        }
       }
     }
     return false;
@@ -166,15 +174,17 @@ export class Simulation {
 
     const nominalGap = (garage.width - this.vehicleConfig.vehicleWidth) / 2;
     const offset = center.x - garage.centerX;
-    const leftClearance = nominalGap + offset;
-    const rightClearance = nominalGap - offset;
-
-    const corners = bodyCorners(this.state, this.vehicleConfig);
+    const polygons = vehicleShapes(this.state, this.vehicleConfig).map(shapeCorners);
+    const corners = polygons.flat();
+    const atDoor = polygons.flatMap((polygon) => clipToYBand(polygon, house.front, house.interiorFront));
+    const span = atDoor.length > 0 ? atDoor : corners;
+    const leftClearance = Math.min(...span.map((p) => p.x)) - garage.left;
+    const rightClearance = garage.right - Math.max(...span.map((p) => p.x));
     const parked = corners.every(
       (corner) =>
         corner.x > house.left &&
         corner.x < house.right &&
-        corner.y > house.front &&
+        corner.y > house.interiorFront &&
         corner.y < house.back,
     );
 
@@ -195,7 +205,9 @@ export class Simulation {
       offset,
       leftClearance,
       rightClearance,
-      fits: leftClearance > 0 && rightClearance > 0,
+      fits: leftClearance > 0 && rightClearance > 0 && !this.collides(),
+      clearanceMode: atDoor.length > 0 ? "at-door" : "projection",
+      mirrorsEnabled: this.vehicleConfig.mirrorWidth > this.vehicleConfig.vehicleWidth,
     };
   }
 }
