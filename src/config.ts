@@ -56,7 +56,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       vehicleWidth: 1.632,
       wheelbase: 2.385,
       frontOverhang: 0.71,
-      turningRadius: 5.0,
+      turningRadius: 4.8,
       steeringRate: 40,
       steeringReturnRate: 40,
     },
@@ -159,7 +159,7 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
       turningRadius: 4.8,
       // Published 195/60 R16: nominal diameter = rim + two sidewalls.
       tyreWidth: 0.195,
-      tyreDiameter: 16 * 0.0254 + 2 * 0.195 * 0.60,
+      tyreDiameter: 16 * 0.0254 + 2 * 0.195 * 0.6,
       steeringRate: 40,
       steeringReturnRate: 40,
     },
@@ -176,7 +176,10 @@ export const VEHICLE_PRESETS: ReadonlyArray<VehiclePreset> = [
     mirrorOffset: preset.config.wheelbase - 0.3,
     mirrorLength: 0.18,
     // Brio's existing spec is explicitly wheel-centre, unlike the other inputs.
-    turningRadiusReference: preset.id === "brio" ? "wheel-centre" as const : "outer-tyre" as const,
+    turningRadiusReference:
+      preset.id === "brio"
+        ? ("wheel-centre" as const)
+        : ("outer-tyre" as const),
     maxInnerSteeringAngle: 60,
   },
 }));
@@ -229,7 +232,11 @@ export function sanitizeEnvironment(
     houseWidth,
   );
   return {
-    wallThickness: positive(input.wallThickness ?? DEFAULT_ENV.wallThickness, DEFAULT_ENV.wallThickness, 0.01),
+    wallThickness: positive(
+      input.wallThickness ?? DEFAULT_ENV.wallThickness,
+      DEFAULT_ENV.wallThickness,
+      0.01,
+    ),
     roadWidth: positive(
       input.roadWidth ?? DEFAULT_ENV.roadWidth,
       DEFAULT_ENV.roadWidth,
@@ -265,25 +272,77 @@ export function sanitizeVehicle(input: Partial<VehicleConfig>): VehicleConfig {
     0.3,
     Math.max(vehicleLength - 0.05, 0.3),
   );
-  const vehicleWidth = positive(input.vehicleWidth ?? fallback.vehicleWidth, fallback.vehicleWidth, 0.3);
-  const tyreWidth = clamp(positive(input.tyreWidth ?? fallback.tyreWidth, fallback.tyreWidth, 0.05), 0.05, vehicleWidth - 0.1);
+  const vehicleWidth = positive(
+    input.vehicleWidth ?? fallback.vehicleWidth,
+    fallback.vehicleWidth,
+    0.3,
+  );
+  const tyreWidth = clamp(
+    positive(input.tyreWidth ?? fallback.tyreWidth, fallback.tyreWidth, 0.05),
+    0.05,
+    vehicleWidth - 0.1,
+  );
   const mirrorWidth = positive(input.mirrorWidth ?? 0, 0, 0);
-  const frontOverhang = clamp(positive(input.frontOverhang ?? fallback.frontOverhang, fallback.frontOverhang, 0), 0, vehicleLength - wheelbase);
-  const mirrorLength = clamp(positive(input.mirrorLength ?? fallback.mirrorLength, fallback.mirrorLength, 0.01), 0.01, vehicleLength);
+  const frontOverhang = clamp(
+    positive(
+      input.frontOverhang ?? fallback.frontOverhang,
+      fallback.frontOverhang,
+      0,
+    ),
+    0,
+    vehicleLength - wheelbase,
+  );
+  const mirrorLength = clamp(
+    positive(
+      input.mirrorLength ?? fallback.mirrorLength,
+      fallback.mirrorLength,
+      0.01,
+    ),
+    0.01,
+    vehicleLength,
+  );
 
   return {
     vehicleLength,
     wheelbase,
     vehicleWidth,
-    trackWidth: clamp(positive(input.trackWidth ?? vehicleWidth - tyreWidth, vehicleWidth - tyreWidth, 0.1), 0.1, vehicleWidth - tyreWidth),
+    trackWidth: clamp(
+      positive(
+        input.trackWidth ?? vehicleWidth - tyreWidth,
+        vehicleWidth - tyreWidth,
+        0.1,
+      ),
+      0.1,
+      vehicleWidth - tyreWidth,
+    ),
     tyreWidth,
-    tyreDiameter: positive(input.tyreDiameter ?? fallback.tyreDiameter, fallback.tyreDiameter, 0.1),
+    tyreDiameter: positive(
+      input.tyreDiameter ?? fallback.tyreDiameter,
+      fallback.tyreDiameter,
+      0.1,
+    ),
     mirrorWidth: mirrorWidth === 0 ? 0 : Math.max(mirrorWidth, vehicleWidth),
-    mirrorOffset: clamp(input.mirrorOffset !== undefined && Number.isFinite(input.mirrorOffset) ? input.mirrorOffset : wheelbase - 0.3,
-      -(vehicleLength - wheelbase - frontOverhang) + mirrorLength / 2, wheelbase + frontOverhang - mirrorLength / 2),
+    mirrorOffset: clamp(
+      input.mirrorOffset !== undefined && Number.isFinite(input.mirrorOffset)
+        ? input.mirrorOffset
+        : wheelbase - 0.3,
+      -(vehicleLength - wheelbase - frontOverhang) + mirrorLength / 2,
+      wheelbase + frontOverhang - mirrorLength / 2,
+    ),
     mirrorLength,
-    turningRadiusReference: input.turningRadiusReference === "wheel-centre" ? "wheel-centre" : "outer-tyre",
-    maxInnerSteeringAngle: clamp(positive(input.maxInnerSteeringAngle ?? fallback.maxInnerSteeringAngle, fallback.maxInnerSteeringAngle, 1), 1, 80),
+    turningRadiusReference:
+      input.turningRadiusReference === "wheel-centre"
+        ? "wheel-centre"
+        : "outer-tyre",
+    maxInnerSteeringAngle: clamp(
+      positive(
+        input.maxInnerSteeringAngle ?? fallback.maxInnerSteeringAngle,
+        fallback.maxInnerSteeringAngle,
+        1,
+      ),
+      1,
+      80,
+    ),
     // Rear overhang is derived, so the front one is bounded by what is left.
     frontOverhang,
     turningRadius: Math.max(

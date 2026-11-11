@@ -11,7 +11,7 @@ import {
 } from "../src/config";
 import { buildEnvironment } from "../src/environment";
 import { Simulation } from "../src/simulation";
-import { Camera } from "../src/camera";
+import { Camera, MAX_VIEW_PITCH, MIN_VIEW_PITCH } from "../src/camera";
 import { runRealismChecks } from "./realism";
 import {
   bodyCenter,
@@ -313,22 +313,75 @@ check(
   );
   const swift = VEHICLE_PRESETS.find((p) => p.id === "swift")!.config;
   const camera = new Camera();
+  const yawCos = Math.cos(camera.yaw);
+  const yawSin = Math.sin(camera.yaw);
+  /** Length of a world ground vector in the pseudo-3D projection. */
+  const projectedLength = (dx: number, dy: number, zoom: number): number => {
+    const rx = dx * yawCos - dy * yawSin;
+    const ry = dx * yawSin + dy * yawCos;
+    return Math.hypot(rx, ry * camera.groundTilt) * zoom;
+  };
   for (const zoom of [4, 32, 100, 320]) {
     camera.zoom = zoom;
     for (const heading of [0, Math.PI / 4, Math.PI / 2, Math.PI]) {
-      const corners = bodyCorners({ x: 0, y: 0, heading, speed: 0, steeringAngle: 0 }, swift)
-        .map((p) => camera.worldToScreen(p.x, p.y, 800, 600));
+      const world = bodyCorners({ x: 0, y: 0, heading, speed: 0, steeringAngle: 0 }, swift);
+      const corners = world.map((p) => camera.worldToScreen(p.x, p.y, 800, 600));
       const widthPx = Math.hypot(corners[0].x - corners[1].x, corners[0].y - corners[1].y);
       const lengthPx = Math.hypot(corners[1].x - corners[2].x, corners[1].y - corners[2].y);
+      const expectedWidth = projectedLength(
+        world[1].x - world[0].x,
+        world[1].y - world[0].y,
+        zoom,
+      );
+      const expectedLength = projectedLength(
+        world[2].x - world[1].x,
+        world[2].y - world[1].y,
+        zoom,
+      );
       check(
-        "camera preserves vehicle dimensions and road-width ratio",
-        near(widthPx, swift.vehicleWidth * zoom, 1e-9) &&
-          near(lengthPx, swift.vehicleLength * zoom, 1e-9) &&
-          near(widthPx / (DEFAULT_ENV.roadWidth * zoom), 1.735 / 3.72, 1e-9),
+        "camera projection preserves vehicle footprint proportions",
+        near(widthPx, expectedWidth, 1e-9) && near(lengthPx, expectedLength, 1e-9),
         `zoom ${zoom}, heading ${heading.toFixed(2)}`,
       );
     }
   }
+  for (const zoom of [4, 32, 320]) {
+    camera.zoom = zoom;
+    for (const [x, y] of [[0, 0], [3, -2], [-5, 7], [12.5, 4.25]]) {
+      const screen = camera.worldToScreen(x, y, 800, 600);
+      const back = camera.screenToWorld(screen.x, screen.y, 800, 600);
+      check(
+        "camera screen/world round-trips on the ground plane",
+        near(back.x, x, 1e-9) && near(back.y, y, 1e-9),
+        `zoom ${zoom}, (${x}, ${y})`,
+      );
+    }
+  }
+  for (const [yawDeg, pitchDeg] of [[0, 25], [90, 45], [140, 70], [-90, 30], [180, 88]]) {
+    camera.setView((yawDeg * Math.PI) / 180, (pitchDeg * Math.PI) / 180);
+    camera.zoom = 64;
+    for (const [x, y] of [[0, 0], [3, -2], [-5, 7], [12.5, 4.25]]) {
+      const screen = camera.worldToScreen(x, y, 800, 600);
+      const back = camera.screenToWorld(screen.x, screen.y, 800, 600);
+      check(
+        "orbited camera round-trips on the ground plane",
+        near(back.x, x, 1e-9) && near(back.y, y, 1e-9),
+        `yaw ${yawDeg}, pitch ${pitchDeg}, (${x}, ${y})`,
+      );
+    }
+  }
+  camera.setView(Math.PI * 3, 0);
+  check(
+    "orbit wraps yaw and clamps pitch",
+    near(camera.yaw, -Math.PI, 1e-9) && near(camera.pitch, MIN_VIEW_PITCH, 1e-9),
+    `yaw ${camera.yawDegrees.toFixed(1)}, pitch ${camera.pitchDegrees.toFixed(1)}`,
+  );
+  camera.setView(0, Math.PI);
+  check(
+    "orbit pitch stays inside the readable range",
+    near(camera.pitch, MAX_VIEW_PITCH, 1e-9) && near(camera.yaw, 0, 1e-9),
+    `pitch ${camera.pitchDegrees.toFixed(1)}`,
+  );
   check(
     "two Swifts leave 25 cm across a 3.72 m road",
     near(DEFAULT_ENV.roadWidth - 2 * swift.vehicleWidth, 0.25, 1e-9),

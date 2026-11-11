@@ -13,6 +13,8 @@ export interface UiCallbacks {
   onZoomOut: () => void;
   onResetCamera: () => void;
   onFollowChange: (follow: boolean) => void;
+  /** Orbit the pseudo-3D view; values are degrees. */
+  onViewAngleChange: (yawDegrees: number, pitchDegrees: number) => void;
   /** Called when a field loses focus so the UI can show sanitised values. */
   onCommit: () => void;
 }
@@ -60,6 +62,10 @@ export class Ui {
   private readonly radiusReference = mustGet<HTMLSelectElement>("veh-turningRadiusReference");
   private readonly clearanceMode = mustGet<HTMLSpanElement>("garage-clearance-mode");
   private readonly followCheckbox = mustGet<HTMLInputElement>("chk-follow");
+  private readonly viewYaw = mustGet<HTMLInputElement>("view-yaw");
+  private readonly viewPitch = mustGet<HTMLInputElement>("view-pitch");
+  private readonly viewYawValue = mustGet<HTMLOutputElement>("view-yaw-value");
+  private readonly viewPitchValue = mustGet<HTMLOutputElement>("view-pitch-value");
   private readonly garagePanel = mustGet<HTMLDivElement>("garage-panel");
   private readonly garageFitStatus = mustGet<HTMLSpanElement>("garage-fit-status");
   private readonly garageVehicleWidth = mustGet<HTMLSpanElement>("garage-vehicle-width");
@@ -127,6 +133,11 @@ export class Ui {
     this.followCheckbox.addEventListener("change", () =>
       callbacks.onFollowChange(this.followCheckbox.checked),
     );
+    const emitView = (): void => {
+      callbacks.onViewAngleChange(this.viewYaw.valueAsNumber, this.viewPitch.valueAsNumber);
+    };
+    this.viewYaw.addEventListener("input", emitView);
+    this.viewPitch.addEventListener("input", emitView);
   }
 
   private wireNumberInput(input: HTMLInputElement, emit: (value: number) => void): void {
@@ -146,6 +157,16 @@ export class Ui {
 
   setFollowChecked(follow: boolean): void {
     this.followCheckbox.checked = follow;
+  }
+
+  /** Reflect the current camera orbit in the sliders and readouts. */
+  setViewAngles(yawDegrees: number, pitchDegrees: number): void {
+    const yaw = Math.round(yawDegrees);
+    const pitch = Math.round(pitchDegrees);
+    this.viewYaw.value = String(yaw);
+    this.viewPitch.value = String(pitch);
+    this.viewYawValue.textContent = `${yaw}°`;
+    this.viewPitchValue.textContent = `${pitch}°`;
   }
 
   /** Populate the preset dropdown, with a trailing "Custom" entry. */

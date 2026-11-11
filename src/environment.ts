@@ -106,8 +106,8 @@ export function buildEnvironment(config: EnvironmentConfig): Environment {
     maxY: back + t + 2,
   };
 
-  const startX = Math.max(roadHalfLength - 4.5, houseRight + 7.5);
-  const start = { x: startX, y: roadBottom / 2 - 0.7, heading: 0 };
+  const startX = Math.max(roadHalfLength - 5.0, houseRight + 6.5);
+  const start = { x: startX, y: roadBottom / 2, heading: Math.PI };
 
   return {
     config,

@@ -139,6 +139,27 @@ kbd {
   border-color: var(--accent);
 }
 
+.field--slider {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: center;
+}
+
+.field--slider input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.field--slider output {
+  text-align: right;
+  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .readout span.is-bad {
   color: var(--bad);
 }
@@ -231,6 +252,10 @@ kbd {
 
 .viewport.is-panning {
   cursor: grabbing;
+}
+
+.viewport.is-orbiting {
+  cursor: move;
 }
 
 #scene {

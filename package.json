@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "2D top-down car garage simulator prototype (manual driving, trajectory, clearance readout)",
+  "description": "Pseudo-3D car garage simulator prototype (extruded 3D view, manual driving, trajectory, clearance readout)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

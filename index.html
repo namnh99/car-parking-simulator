@@ -7,13 +7,13 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%234da3ff'/%3E%3C/svg%3E"
     />
-    <title>2D Car Garage Simulator</title>
+    <title>3D Car Garage Simulator</title>
   </head>
   <body>
     <div class="app">
       <aside class="panel">
         <header class="panel__header">
-          <h1>Car Garage Sim</h1>
+          <h1>3D Car Garage Sim</h1>
           <p class="hint">
             <kbd>W</kbd>/<kbd>&uarr;</kbd> drive &middot; <kbd>S</kbd>/<kbd>&darr;</kbd> reverse &middot;
             <kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot;
@@ -155,7 +155,19 @@
             <input id="chk-follow" type="checkbox" />
             <span>Follow vehicle</span>
           </label>
-          <p class="hint hint--block">Drag the map to pan, scroll to zoom.</p>
+          <label class="field field--slider">
+            <span>Yaw <em>deg</em></span>
+            <input id="view-yaw" type="range" min="-180" max="180" step="1" value="12" />
+            <output id="view-yaw-value" for="view-yaw">12&deg;</output>
+          </label>
+          <label class="field field--slider">
+            <span>Pitch <em>deg</em></span>
+            <input id="view-pitch" type="range" min="25" max="88" step="1" value="50" />
+            <output id="view-pitch-value" for="view-pitch">50&deg;</output>
+          </label>
+          <p class="hint hint--block">
+            Drag the map to pan. Right-drag or Shift-drag to orbit the 3D view. Scroll to zoom.
+          </p>
         </section>
 
         <div class="actions actions--footer">

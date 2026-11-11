@@ -1,6 +1,6 @@
 import "./style.css";
 import { DEFAULT_ENV, DEFAULT_VEHICLE, SIM, VEHICLE_PRESETS } from "./config";
-import { Camera } from "./camera";
+import { Camera, DEFAULT_VIEW_PITCH, DEFAULT_VIEW_YAW } from "./camera";
 import { InputManager } from "./input";
 import { Renderer } from "./renderer";
 import { Simulation } from "./simulation";
@@ -25,8 +25,27 @@ const input = new InputManager();
 let follow = false;
 let cameraUserControlled = false;
 
+function fitCamera(): void {
+  // Frame the action (house, garage approach and the spawn) rather than the
+  // entire carriageway, which is several times wider than the stage.
+  const env = simulation.env;
+  camera.fit(
+    {
+      minX: env.house.left - 3.5,
+      maxX: env.start.x + 3.2,
+      minY: env.bounds.minY,
+      maxY: env.bounds.maxY,
+    },
+    renderer.viewWidth,
+    renderer.viewHeight,
+    0.92,
+  );
+}
+
 function resetCameraView(): void {
-  camera.fit(simulation.env.bounds, renderer.viewWidth, renderer.viewHeight);
+  camera.setView(DEFAULT_VIEW_YAW, DEFAULT_VIEW_PITCH);
+  fitCamera();
+  ui.setViewAngles(camera.yawDegrees, camera.pitchDegrees);
   cameraUserControlled = false;
 }
 
@@ -65,6 +84,11 @@ const ui = new Ui({
   },
   onResetCamera: () => resetCameraView(),
   onFollowChange: (value) => setFollow(value),
+  onViewAngleChange: (yawDegrees, pitchDegrees) => {
+    camera.setView((yawDegrees * Math.PI) / 180, (pitchDegrees * Math.PI) / 180);
+    ui.setViewAngles(camera.yawDegrees, camera.pitchDegrees);
+    cameraUserControlled = true;
+  },
   onCommit: () => ui.syncInputs(simulation.env.config, simulation.vehicleConfig),
 });
 
@@ -72,6 +96,7 @@ ui.setPresets(VEHICLE_PRESETS.map(({ id, label }) => ({ id, label })));
 ui.selectPreset(initialPreset?.id ?? CUSTOM_PRESET_ID);
 ui.syncInputs(simulation.env.config, simulation.vehicleConfig);
 ui.updateTurning(simulation.vehicleConfig);
+ui.setViewAngles(camera.yawDegrees, camera.pitchDegrees);
 
 // ------------------------------------------------------------------ layout
 
@@ -88,35 +113,50 @@ handleResize();
 
 // ------------------------------------------------------------- map gestures
 
-let dragging = false;
+type DragMode = "pan" | "orbit";
+
+let dragMode: DragMode | null = null;
 let lastPointerX = 0;
 let lastPointerY = 0;
 
+function setDragMode(mode: DragMode | null): void {
+  dragMode = mode;
+  viewport.classList.toggle("is-panning", mode === "pan");
+  viewport.classList.toggle("is-orbiting", mode === "orbit");
+}
+
 canvas.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 && event.button !== 1) return;
-  dragging = true;
+  const wantsOrbit = event.button === 2 || (event.button === 0 && event.shiftKey);
+  const wantsPan = event.button === 0 || event.button === 1;
+  if (!wantsOrbit && !wantsPan) return;
+  setDragMode(wantsOrbit ? "orbit" : "pan");
   lastPointerX = event.clientX;
   lastPointerY = event.clientY;
   canvas.setPointerCapture(event.pointerId);
-  viewport.classList.add("is-panning");
+  if (follow) setFollow(false);
 });
 
 canvas.addEventListener("pointermove", (event) => {
-  if (!dragging) return;
+  if (!dragMode) return;
   const dx = event.clientX - lastPointerX;
   const dy = event.clientY - lastPointerY;
   lastPointerX = event.clientX;
   lastPointerY = event.clientY;
-  camera.panByScreen(dx, dy);
+  if (dragMode === "orbit") {
+    // Match the drag direction: dragging down tilts the ground plane down
+    // towards the viewer (higher pitch), dragging up lowers the view.
+    camera.orbitBy(-dx * 0.008, dy * 0.008);
+    ui.setViewAngles(camera.yawDegrees, camera.pitchDegrees);
+  } else {
+    camera.panByScreen(dx, dy);
+  }
   cameraUserControlled = true;
-  if (follow) setFollow(false);
 });
 
 function endDrag(event: PointerEvent): void {
-  if (!dragging) return;
-  dragging = false;
+  if (!dragMode) return;
+  setDragMode(null);
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-  viewport.classList.remove("is-panning");
 }
 
 canvas.addEventListener("pointerup", endDrag);
